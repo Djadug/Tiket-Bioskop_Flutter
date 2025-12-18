@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'sign_up_page.dart';
 import '../home_page.dart';
+import '../admin/admin_dashboard_page.dart';
+import '../../../services/admin_service.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({super.key});
@@ -33,9 +35,31 @@ class _SignInPageState extends State<SignInPage> {
     setState(() => _isLoading = true);
     
     // Simulate network delay
-    await Future.delayed(const Duration(seconds: 1));
+    await Future.delayed(const Duration(milliseconds: 500));
 
-    // Check credentials
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    // Check for admin credentials FIRST
+    if (email == 'adminbioskop@admin.com' && password == 'admin123') {
+      final adminService = AdminService();
+      await adminService.setAdminStatus(true);
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      
+      setState(() => _isLoading = false);
+      
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
+        );
+      }
+      return;
+    }
+
+    // Check credentials for regular users
     final prefs = await SharedPreferences.getInstance();
     final registeredEmail = prefs.getString('registered_email');
     final registeredPassword = prefs.getString('registered_password');
@@ -55,8 +79,7 @@ class _SignInPageState extends State<SignInPage> {
     }
 
     // Validate credentials
-    if (_emailController.text.trim() != registeredEmail || 
-        _passwordController.text != registeredPassword) {
+    if (email != registeredEmail || password != registeredPassword) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -69,6 +92,7 @@ class _SignInPageState extends State<SignInPage> {
 
     // Login successful
     await prefs.setBool('isLoggedIn', true);
+    await AdminService().setAdminStatus(false);
 
     if (!mounted) return;
     
@@ -127,6 +151,10 @@ class _SignInPageState extends State<SignInPage> {
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Email tidak boleh kosong';
+                    }
+                    // Allow admin email
+                    if (value == 'adminbioskop@admin.com') {
+                      return null;
                     }
                     if (!value.contains('@gmail.com')) {
                       return 'Email harus menggunakan @gmail.com';

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/entities/movie.dart';
 import '../../domain/entities/schedule.dart';
 import '../../domain/entities/seat.dart';
 import 'payment_page.dart';
+import 'auth/sign_in_page.dart';
 
 class CheckoutPage extends StatelessWidget {
   static const String routeName = "/checkout";
@@ -66,7 +68,24 @@ class CheckoutPage extends StatelessWidget {
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.payments_rounded),
                 label: const Text("Bayar Sekarang"),
-                onPressed: () {
+                onPressed: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+
+                  if (!isLoggedIn) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Silakan login terlebih dahulu untuk melanjutkan pembayaran."),
+                        backgroundColor: Colors.red,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SignInPage()),
+                    );
+                    return;
+                  }
+
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => PaymentPage(

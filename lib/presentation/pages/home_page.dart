@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 import '../../domain/entities/movie.dart';
 import '../../services/booking_service.dart';
+import '../../services/admin_service.dart';
 import 'movie_detail_page.dart';
 import 'my_tickets_page.dart';
 import 'auth/sign_in_page.dart';
@@ -16,11 +19,38 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int ticketCount = 0;
+  List<Movie> _movies = [];
+  bool loading = true;
+  bool _isLoggedIn = false;
 
   @override
   void initState() {
     super.initState();
+    _checkLoginStatus();
     _loadTicketCount();
+    _loadMovies();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    });
+  }
+
+  Future<void> _loadMovies() async {
+    final adminService = AdminService();
+    
+    // Check midnight reset
+    await adminService.checkAndResetIfNeeded();
+    
+    // Load movies from admin config
+    final movies = await adminService.getMoviesForDisplay();
+    
+    setState(() {
+      _movies = movies;
+      loading = false;
+    });
   }
 
   Future<void> _loadTicketCount() async {
@@ -31,57 +61,26 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // Mock Data using the actual Movie entity structure
-  final List<Movie> _movies = [
-    Movie(
-      id: 'm1',
-      title: 'Riba',
-      poster: 'assets/images/riba.jpg',
-      synopsis: 'Teror mengerikan akibat hutang yang membawa petaka bagi keluarga...',
-      duration: 105,
-      rating: 4.5,
-      genres: ['Horor', 'Drama'],
-    ),
-    Movie(
-      id: 'm2',
-      title: 'Ozora: Penganiayaan Brutal',
-      poster: 'assets/images/ozora.jpg',
-      synopsis: 'Kisah nyata penganiayaan brutal yang mengguncang publik...',
-      duration: 110,
-      rating: 4.2,
-      genres: ['Drama', 'Crime'],
-    ),
-    Movie(
-      id: 'm3',
-      title: 'Wasiat Warisan',
-      poster: 'assets/images/wasiat_warisan.jpg',
-      synopsis: 'Perebutan harta warisan yang berujung pada malapetaka...',
-      duration: 95,
-      rating: 3.8,
-      genres: ['Komedi', 'Horor'],
-    ),
-    Movie(
-      id: 'm4',
-      title: 'Five Nights at Freddy\'s',
-      poster: 'assets/images/fnaf2.jpg',
-      synopsis: 'Selamat datang kembali di pengalaman horor klasik...',
-      duration: 115,
-      rating: 4.0,
-      genres: ['Horor', 'Thriller'],
-    ),
-    Movie(
-      id: 'm5',
-      title: 'Dusun Mayit',
-      poster: 'assets/images/dusun_mayit.jpg',
-      synopsis: 'Misteri desa terpencil yang menyimpan rahasia kelam...',
-      duration: 100,
-      rating: 4.1,
-      genres: ['Horor'],
-    ),
-  ];
+
+
+  void _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', false);
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const SignInPage()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -98,33 +97,50 @@ class _HomePageState extends State<HomePage> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.black),
-            onPressed: () async {
-               // Logout Logic
-               final prefs = await SharedPreferences.getInstance();
-               await prefs.setBool('isLoggedIn', false);
-               if (context.mounted) {
-                 Navigator.of(context).pushReplacement(
-                   MaterialPageRoute(builder: (_) => const SignInPage()),
-                 );
-               }
-            },
-          ),
-          IconButton(
-            icon: Badge(
-              label: Text('$ticketCount'),
-              isLabelVisible: ticketCount > 0,
-              child: const Icon(Icons.shopping_cart_outlined, color: Colors.black),
+            icon: Icon(
+              _isLoggedIn ? Icons.logout : Icons.account_circle,
+              color: Colors.black,
             ),
             onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const MyTicketsPage()),
-              );
-              // Reload ticket count when returning
-              _loadTicketCount();
+              if (_isLoggedIn) {
+                // Logout Logic
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('isLoggedIn', false);
+                setState(() => _isLoggedIn = false);
+                
+                // Optional: Force reload to guest state or navigate to login
+                if (context.mounted) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const SignInPage()),
+                  );
+                }
+              } else {
+                // Login Logic
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SignInPage()),
+                );
+                // Refresh state on return
+                _checkLoginStatus();
+              }
             },
           ),
+          if (_isLoggedIn)
+            IconButton(
+              icon: Badge(
+                label: Text('$ticketCount'),
+                isLabelVisible: ticketCount > 0,
+                child: const Icon(Icons.shopping_cart_outlined, color: Colors.black),
+              ),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MyTicketsPage()),
+                );
+                // Reload ticket count when returning
+                _loadTicketCount();
+              },
+            ),
         ],
       ),
       body: SingleChildScrollView(
@@ -168,13 +184,7 @@ class _HomePageState extends State<HomePage> {
                             children: [
                                // Use a colored container as placeholder if asset fails, or actual image
                               Container(color: Colors.grey[200]),
-                              Image.asset(
-                                movie.poster,
-                                fit: BoxFit.cover,
-                                errorBuilder: (c, o, s) => const Center(
-                                  child: Icon(Icons.movie, size: 80, color: Colors.grey),
-                                ),
-                              ),
+                              _buildMovieImage(movie.poster, BoxFit.cover),
                               Positioned(
                                 bottom: 0,
                                 left: 0,
@@ -342,6 +352,44 @@ class _HomePageState extends State<HomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => MovieDetailPage(movie: movie)),
+    );
+  }
+
+  // Helper method to build image from asset or base64
+  Widget _buildMovieImage(String posterData, BoxFit fit) {
+    if (posterData.startsWith('data:image') || posterData.contains('base64')) {
+      // Base64 image
+      try {
+        final base64String = posterData.contains(',') ? posterData.split(',')[1] : posterData;
+        final bytes = base64Decode(base64String);
+        return Image.memory(
+          bytes,
+          fit: fit,
+          errorBuilder: (c, o, s) => Container(
+            color: Colors.grey[200],
+            child: const Center(child: Icon(Icons.movie, size: 80, color: Colors.grey)),
+          ),
+        );
+      } catch (e) {
+        return Container(
+          color: Colors.grey[200],
+          child: const Center(child: Icon(Icons.error, size: 80, color: Colors.red)),
+        );
+      }
+    } else if (posterData.startsWith('assets/')) {
+      // Asset image
+      return Image.asset(
+        posterData,
+        fit: fit,
+        errorBuilder: (c, o, s) => Container(
+          color: Colors.grey[200],
+          child: const Center(child: Icon(Icons.movie, size: 80, color: Colors.grey)),
+        ),
+      );
+    }
+    return Container(
+      color: Colors.grey[200],
+      child: const Center(child: Icon(Icons.image_not_supported, size: 80, color: Colors.grey)),
     );
   }
 }
